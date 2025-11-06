@@ -1,4 +1,8 @@
 import * as vscode from "vscode";
+import { getAuthPageHTML } from "../pages/authHTML";
+import { getDashboardHTMLPage } from "../pages/dashboardHTML";
+import { AuthService } from "../services/AuthService";
+import { FileService } from "../services/FileService";
 
 export class IntegrateSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "integrate.mainView";
@@ -7,7 +11,9 @@ export class IntegrateSidebarProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly _context: vscode.ExtensionContext,
-    private readonly _apiUrl: string
+    private readonly _apiUrl: string,
+    private readonly _authService: AuthService,
+    private readonly _fileService: FileService
   ) {}
 
   public resolveWebviewView(webviewView: vscode.WebviewView) {
@@ -19,108 +25,87 @@ export class IntegrateSidebarProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(async (data) => {
       if (data.command === "authenticate") {
         await this.handleAuth(data.authToken, data.email);
+      } else if (data.command === "refreshAPIs") {
+        await this.fetchAndSendAPIs();
+      } else if (data.command === "logout") {
+        await this.handleLogout();
       }
     });
   }
 
-  private async checkAuthAndRender() {
-    const token = await this._context.secrets.get("integrate.authToken");
-
-    if (!token) {
-      this._view!.webview.html = this.getAuthHTML();
-    } else {
-      this._view!.webview.html = this.getDashboardHTML();
-    }
-  }
-
-  private async handleAuth(authToken: string, email: string) {
+  private async fetchAndSendAPIs() {
     try {
-      const response = await fetch(`${this._apiUrl}/auth`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ authToken, email }),
-      });
+      const token = await this._context.secrets.get("integrate.authToken");
+      const projectId = vscode.workspace
+        .getConfiguration("integrate")
+        .get<string>("projectId");
+
+      const response = await fetch(
+        `${this._apiUrl}/projects/${projectId}/apis`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
 
       if (response.ok) {
-        const data = (await response.json()) as {
-          projectId?: string;
-          message?: string;
-        };
-
-        await this._context.secrets.store("integrate.authToken", authToken);
-        await this._context.secrets.store("integrate.userEmail", email);
-
-        if (data.projectId) {
-          await vscode.workspace
-            .getConfiguration("integrate")
-            .update("projectId", data.projectId, true);
-        }
-
-        this._view!.webview.html = this.getDashboardHTML();
-        vscode.window.showInformationMessage("Successfully connected!");
-      } else {
+        const data = (await response.json()) as { apis: [] };
         this._view!.webview.postMessage({
-          command: "authError",
-          message: "Invalid credentials",
+          command: "updateAPIs",
+          data: data.apis || [],
         });
       }
     } catch (error) {
+      console.error("Failed to fetch APIs:", error);
+    }
+  }
+
+  private async handleLogout() {
+    await this._authService.logout();
+    this._view!.webview.html = this.getAuthHTML();
+    vscode.window.showInformationMessage("Logged out");
+  }
+
+  private async checkAuthAndRender() {
+    const isAuth = await this._authService.isAuthenticated();
+    this._view!.webview.html = isAuth
+      ? this.getDashboardHTML()
+      : this.getAuthHTML();
+  }
+
+  private async handleAuth(authToken: string, email: string) {
+    const result = await this._authService.authenticate(authToken, email);
+
+    if (result.success && result.projectId) {
+      await vscode.workspace
+        .getConfiguration("integrate")
+        .update("projectId", result.projectId, true);
+
+      if (result.projectName) {
+        await vscode.workspace
+          .getConfiguration("integrate")
+          .update("projectName", result.projectName, true);
+      }
+
+      if (result.files && result.files.length > 0) {
+        await this._fileService.downloadProjectFiles(result.files);
+      }
+
+      this._view!.webview.html = this.getDashboardHTML();
+      vscode.window.showInformationMessage(
+        `Connected to ${result.projectName}!`
+      );
+    } else {
       this._view!.webview.postMessage({
         command: "authError",
-        message: "Connection failed",
+        message: result.error || "Authentication failed",
       });
     }
   }
   private getAuthHTML() {
-    return `<!DOCTYPE html>
-  <html>
-  <head>
-    <style>
-      body { padding: 20px; font-family: var(--vscode-font-family); }
-      input { width: 100%; padding: 8px; margin: 10px 0; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); }
-      button { width: 100%; padding: 10px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; cursor: pointer; margin-top: 10px; }
-      .error { color: var(--vscode-errorForeground); margin-top: 10px; }
-    </style>
-  </head>
-  <body>
-    <h2>Connect to Integrate</h2>
-    <input type="email" id="email" placeholder="Your Gmail" />
-    <input type="password" id="authToken" placeholder="Auth Token" />
-    <button onclick="authenticate()">Connect</button>
-    <div id="error" class="error"></div>
-    
-    <script>
-      const vscode = acquireVsCodeApi();
-      
-      function authenticate() {
-        const email = document.getElementById('email').value;
-        const authToken = document.getElementById('authToken').value;
-        
-        if (!email || !authToken) {
-          document.getElementById('error').textContent = 'Both fields required';
-          return;
-        }
-        
-        vscode.postMessage({ command: 'authenticate', authToken, email });
-      }
-      
-      window.addEventListener('message', (event) => {
-        if (event.data.command === 'authError') {
-          document.getElementById('error').textContent = event.data.message;
-        }
-      });
-    </script>
-  </body>
-  </html>`;
+    return getAuthPageHTML();
   }
 
   private getDashboardHTML() {
-    return `<!DOCTYPE html>
-    <html>
-    <body>
-      <h2>Dashboard</h2>
-      <p>Authenticated! Main features coming next...</p>
-    </body>
-    </html>`;
+    return getDashboardHTMLPage();
   }
 }
