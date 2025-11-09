@@ -17,7 +17,13 @@ export const getDashboardHTMLPage = () => {
         cursor: pointer; 
       }
       button:hover { background: var(--vscode-button-hoverBackground); }
-      .api-list { margin-top: 20px; }
+      .status-section { margin-top: 20px; }
+      .status-title { 
+        font-size: 14px; 
+        font-weight: bold; 
+        margin: 16px 0 8px 0;
+        text-transform: capitalize;
+      }
       .api-item { 
         padding: 12px; 
         margin: 8px 0; 
@@ -26,17 +32,18 @@ export const getDashboardHTMLPage = () => {
         border-radius: 4px;
       }
       .api-name { font-weight: bold; margin-bottom: 4px; }
-      .api-endpoint { font-size: 12px; color: var(--vscode-descriptionForeground); }
-      .status { 
+      .api-endpoint { font-size: 12px; color: var(--vscode-descriptionForeground); margin-bottom: 4px; }
+      .api-version { font-size: 11px; color: var(--vscode-descriptionForeground); }
+      .status-badge { 
         display: inline-block; 
         padding: 2px 8px; 
         border-radius: 3px; 
         font-size: 11px; 
         margin-top: 6px;
       }
-      .status.ready { background: #4caf50; color: white; }
-      .status.progress { background: #ff9800; color: white; }
-      .status.not-started { background: #757575; color: white; }
+      .status-badge.completed { background: #4caf50; color: white; }
+      .status-badge.ongoing { background: #ff9800; color: white; }
+      .status-badge.pending { background: #757575; color: white; }
       .loading { text-align: center; padding: 20px; }
     </style>
   </head>
@@ -62,14 +69,33 @@ export const getDashboardHTMLPage = () => {
         vscode.postMessage({ command: 'logout' });
       }
       
-      function renderAPIs(apis) {
-        const html = apis.map(api => \`
-          <div class="api-item">
-            <div class="api-name">\${api.name}</div>
-            <div class="api-endpoint">\${api.method} \${api.endpoint}</div>
-            <span class="status \${api.status.toLowerCase().replace(' ', '-')}">\${api.status}</span>
-          </div>
-        \`).join('');
+      function renderAPIs(data) {
+        if (!data || !data.groupedByStatus) {
+          document.getElementById('content').innerHTML = '<p>No APIs found</p>';
+          return;
+        }
+        
+        let html = '';
+        const grouped = data.groupedByStatus;
+        
+        // Render each status group
+        ['completed', 'ongoing', 'pending'].forEach(status => {
+          const apis = grouped[status];
+          if (apis && apis.length > 0) {
+            html += \`<div class="status-section">
+              <div class="status-title">\${status} (\${apis.length})</div>\`;
+            
+            apis.forEach(api => {
+              html += \`<div class="api-item">
+                <div class="api-name">\${api.path}</div>
+                <div class="api-endpoint">\${api.method} • Version: \${api.version}</div>
+                <span class="status-badge \${api.endpoint_status}">\${api.endpoint_status}</span>
+              </div>\`;
+            });
+            
+            html += '</div>';
+          }
+        });
         
         document.getElementById('content').innerHTML = html || '<p>No APIs found</p>';
       }

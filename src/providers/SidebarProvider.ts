@@ -3,6 +3,7 @@ import { getAuthPageHTML } from "../pages/authHTML";
 import { getDashboardHTMLPage } from "../pages/dashboardHTML";
 import { AuthService } from "../services/AuthService";
 import { FileService } from "../services/FileService";
+import { ApiService } from "../services/ApiService";
 
 export class IntegrateSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "integrate.mainView";
@@ -13,7 +14,8 @@ export class IntegrateSidebarProvider implements vscode.WebviewViewProvider {
     private readonly _context: vscode.ExtensionContext,
     private readonly _apiUrl: string,
     private readonly _authService: AuthService,
-    private readonly _fileService: FileService
+    private readonly _fileService: FileService,
+    private readonly _apiService: ApiService
   ) {}
 
   public resolveWebviewView(webviewView: vscode.WebviewView) {
@@ -24,7 +26,7 @@ export class IntegrateSidebarProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(async (data) => {
       if (data.command === "authenticate") {
-        await this.handleAuth(data.authToken, data.email);
+        await this.handleAuth(data.projectToken, data.email);
       } else if (data.command === "refreshAPIs") {
         await this.fetchAndSendAPIs();
       } else if (data.command === "logout") {
@@ -35,27 +37,23 @@ export class IntegrateSidebarProvider implements vscode.WebviewViewProvider {
 
   private async fetchAndSendAPIs() {
     try {
-      const token = await this._context.secrets.get("integrate.authToken");
       const projectId = vscode.workspace
         .getConfiguration("integrate")
         .get<string>("projectId");
+      const response = await this._apiService
+        .getInstance()
+        .get(`/projects/endpoint`);
 
-      const response = await fetch(
-        `${this._apiUrl}/projects/${projectId}/apis`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-
-      if (response.ok) {
-        const data = (await response.json()) as { apis: [] };
-        this._view!.webview.postMessage({
-          command: "updateAPIs",
-          data: data.apis || [],
-        });
-      }
+      this._view!.webview.postMessage({
+        command: "updateAPIs",
+        data: response.data,
+      });
     } catch (error) {
       console.error("Failed to fetch APIs:", error);
+      this._view?.webview.postMessage({
+        command: "updateAPIs",
+        data: { groupedByStatus: {} },
+      });
     }
   }
 
@@ -72,8 +70,8 @@ export class IntegrateSidebarProvider implements vscode.WebviewViewProvider {
       : this.getAuthHTML();
   }
 
-  private async handleAuth(authToken: string, email: string) {
-    const result = await this._authService.authenticate(authToken, email);
+  private async handleAuth(projectToken: string, email: string) {
+    const result = await this._authService.authenticate(projectToken, email);
 
     if (result.success && result.projectId) {
       await vscode.workspace

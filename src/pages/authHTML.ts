@@ -12,7 +12,7 @@ export const getAuthPageHTML = () => {
   <body>
     <h2>Connect to Integrate</h2>
     <input type="email" id="email" placeholder="Your Gmail" />
-    <input type="password" id="authToken" placeholder="Auth Token" />
+    <input type="password" id="projectToken" placeholder="Auth Token" />
     <button onclick="authenticate()">Connect</button>
     <div id="error" class="error"></div>
     
@@ -21,14 +21,14 @@ export const getAuthPageHTML = () => {
       
       function authenticate() {
         const email = document.getElementById('email').value;
-        const authToken = document.getElementById('authToken').value;
+        const projectToken = document.getElementById('projectToken').value;
         
-        if (!email || !authToken) {
+        if (!email || !projectToken) {
           document.getElementById('error').textContent = 'Both fields required';
           return;
         }
         
-        vscode.postMessage({ command: 'authenticate', authToken, email });
+        vscode.postMessage({ command: 'authenticate', projectToken, email });
       }
       
       window.addEventListener('message', (event) => {

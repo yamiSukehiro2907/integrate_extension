@@ -16,11 +16,17 @@
       "title": "Integrate",
       "properties": {
         "integrate.projectId": {
-          "type": "string"
+          "type": "string",
+          "description": "Project ID"
+        },
+        "integrate.projectName": {
+          "type": "string",
+          "description": "Project Name"
         },
         "integrate.serverUrl": {
           "type": "string",
-          "default": "https://api.integrate.dev"
+          "default": "http://localhost:8080",
+          "description": "API Server URL"
         }
       }
     },
